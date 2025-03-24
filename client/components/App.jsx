@@ -1,71 +1,252 @@
 import { useEffect, useRef, useState } from "react";
 import logo from "/assets/openai-logomark.svg";
-import EventLog from "./EventLog";
-import SessionControls from "./SessionControls";
-import ToolPanel from "./ToolPanel";
+import Cart from "./Cart";
+
+const sessionUpdate = {
+  type: "session.update",
+  session: {
+    tools: [
+      {
+        type: "function",
+        name: "add_item",
+        description: "Add an item to the cart",
+        parameters: {
+          type: "object",
+          properties: {
+            item_id: {
+              type: "string",
+              description: "Unique identifier for the item"
+            },
+            item_name: {
+              type: "string",
+              description: "Display name of the item"
+            },
+            price: {
+              type: "number",
+              description: "Price of the item"
+            }
+          },
+          required: ["item_id", "item_name", "price"]
+        }
+      },
+      {
+        type: "function",
+        name: "remove_item",
+        description: "Remove an item from the cart",
+        parameters: {
+          type: "object",
+          properties: {
+            item_id: {
+              type: "string",
+              description: "ID of the item to remove"
+            }
+          },
+          required: ["item_id"]
+        }
+      },
+      {
+        type: "function",
+        name: "update_quantity",
+        description: "Update the quantity of an item in the cart",
+        parameters: {
+          type: "object",
+          properties: {
+            item_id: {
+              type: "string",
+              description: "ID of the item to update"
+            },
+            quantity: {
+              type: "number",
+              description: "New quantity"
+            }
+          },
+          required: ["item_id", "quantity"]
+        }
+      },
+      {
+        type: "function",
+        name: "clear_cart",
+        description: "Clear all items from the cart",
+        parameters: {
+          type: "object",
+          properties: {}
+        }
+      },
+      {
+        type: "function",
+        name: "get_cart",
+        description: "Get the current contents of the cart",
+        parameters: {
+          type: "object",
+          properties: {}
+        }
+      }
+    ],
+    tool_choice: "auto"
+  }
+};
 
 export default function App() {
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [events, setEvents] = useState([]);
+  const [cartItems, setCartItems] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
+  const [toolsConfigured, setToolsConfigured] = useState(false);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
 
-  async function startSession() {
-    // Get a session token for OpenAI Realtime API
-    const tokenResponse = await fetch("/token");
-    const data = await tokenResponse.json();
-    const EPHEMERAL_KEY = data.client_secret.value;
+  // Handle cart operations
+  const updateCart = (action, item) => {
+    switch (action) {
+      case 'add':
+        setCartItems(prev => {
+          const existingItem = prev.find(i => i.id === item.id);
+          if (existingItem) {
+            return prev.map(i => 
+              i.id === item.id 
+                ? { ...i, quantity: i.quantity + 1 }
+                : i
+            );
+          }
+          return [...prev, { ...item, quantity: 1 }];
+        });
+        sendClientEvent({
+          type: 'response.create',
+          response: {
+            instructions: `Say that you added the item to the cart, in a natural way`,
+          },
+        });
+        break;
+      case 'remove':
+        setCartItems(prev => prev.filter(i => i.id !== item.id));
+        sendClientEvent({
+          type: 'response.create',
+          response: {
+            instructions: `Say that you removed the item from the cart, in a natural way`,
+          },
+        });
 
-    // Create a peer connection
-    const pc = new RTCPeerConnection();
+        break;
+      case 'update':
+        setCartItems(prev => 
+          prev.map(i => i.id === item.id ? { ...i, quantity: item.quantity } : i)
+        );
+        sendClientEvent({
+          type: 'response.create',
+          response: {
+            instructions: `Say that you updated the quantity of the item in the cart, in a natural way`,
+          },
+        });
+        break;
+      case 'clear':
+        setCartItems([]);
+        sendClientEvent({
+          type: 'response.create',
+          response: {
+            instructions: `Say that you cleared the cart, in a natural way`,
+          },
+        });
+        break;
+    }
+  };
 
-    // Set up to play remote audio from the model
-    audioElement.current = document.createElement("audio");
-    audioElement.current.autoplay = true;
-    pc.ontrack = (e) => (audioElement.current.srcObject = e.streams[0]);
-
-    // Add local audio track for microphone input in the browser
-    const ms = await navigator.mediaDevices.getUserMedia({
-      audio: true,
+  // Handle function calls from the AI
+  const handleFunctionCall = (output) => {
+    console.log('🛠️ Function Call:', {
+      name: output.name,
+      arguments: JSON.parse(output.arguments)
     });
-    pc.addTrack(ms.getTracks()[0]);
+    
+    switch (output.name) {
+      case 'add_item': {
+        const params = JSON.parse(output.arguments);
+        updateCart('add', {
+          id: params.item_id,
+          name: params.item_name,
+          price: params.price
+        });
+        break;
+      }
+      case 'remove_item': {
+        const params = JSON.parse(output.arguments);
+        updateCart('remove', { id: params.item_id });
+        break;
+      }
+      case 'update_quantity': {
+        const params = JSON.parse(output.arguments);
+        updateCart('update', {
+          id: params.item_id,
+          quantity: params.quantity
+        });
+        break;
+      }
+      case 'clear_cart':
+        updateCart('clear');
+        break;
+      case 'get_cart':
+        break;
+    }
+  };
 
-    // Set up data channel for sending and receiving events
-    const dc = pc.createDataChannel("oai-events");
-    setDataChannel(dc);
-
-    // Start the session using the Session Description Protocol (SDP)
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    const baseUrl = "https://api.openai.com/v1/realtime";
-    const model = "gpt-4o-realtime-preview-2024-12-17";
-    const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-      method: "POST",
-      body: offer.sdp,
-      headers: {
-        Authorization: `Bearer ${EPHEMERAL_KEY}`,
-        "Content-Type": "application/sdp",
-      },
-    });
-
-    const answer = {
-      type: "answer",
-      sdp: await sdpResponse.text(),
-    };
-    await pc.setRemoteDescription(answer);
-
-    peerConnection.current = pc;
+  function sendClientEvent(message) {
+    if (dataChannel) {
+      if (message.type === "tools.configure") {
+        console.log('🔧 Configuring tools');
+      }
+      dataChannel.send(JSON.stringify(message));
+    }
   }
 
-  // Stop current session, clean up peer connection and data channel
+  async function startSession() {
+    try {
+      const tokenResponse = await fetch("/token");
+      const data = await tokenResponse.json();
+      const EPHEMERAL_KEY = data.client_secret.value;
+
+      const pc = new RTCPeerConnection();
+
+      audioElement.current = document.createElement("audio");
+      audioElement.current.autoplay = true;
+      pc.ontrack = (e) => (audioElement.current.srcObject = e.streams[0]);
+
+      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
+      pc.addTrack(ms.getTracks()[0]);
+
+      const dc = pc.createDataChannel("oai-events");
+      setDataChannel(dc);
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const baseUrl = "https://api.openai.com/v1/realtime";
+      const model = "gpt-4o-realtime-preview-2024-12-17";
+      
+      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${EPHEMERAL_KEY}`,
+          "Content-Type": "application/sdp",
+        },
+      });
+
+      const answer = {
+        type: "answer",
+        sdp: await sdpResponse.text(),
+      };
+      await pc.setRemoteDescription(answer);
+
+      peerConnection.current = pc;
+    } catch (error) {
+      console.error('Error starting session:', error);
+    }
+  }
+
   function stopSession() {
     if (dataChannel) {
       dataChannel.close();
     }
 
-    peerConnection.current.getSenders().forEach((sender) => {
+    peerConnection.current?.getSenders().forEach((sender) => {
       if (sender.track) {
         sender.track.stop();
       }
@@ -78,104 +259,80 @@ export default function App() {
     setIsSessionActive(false);
     setDataChannel(null);
     peerConnection.current = null;
+    setToolsConfigured(false);
   }
 
-  // Send a message to the model
-  function sendClientEvent(message) {
-    if (dataChannel) {
-      const timestamp = new Date().toLocaleTimeString();
-      message.event_id = message.event_id || crypto.randomUUID();
-
-      // send event before setting timestamp since the backend peer doesn't expect this field
-      dataChannel.send(JSON.stringify(message));
-
-      // if guard just in case the timestamp exists by miracle
-      if (!message.timestamp) {
-        message.timestamp = timestamp;
-      }
-      setEvents((prev) => [message, ...prev]);
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        message,
-      );
-    }
-  }
-
-  // Send a text message to the model
-  function sendTextMessage(message) {
-    const event = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
-      },
-    };
-
-    sendClientEvent(event);
-    sendClientEvent({ type: "response.create" });
-  }
-
-  // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
     if (dataChannel) {
-      // Append new server events to the list
-      dataChannel.addEventListener("message", (e) => {
+      const handleMessage = (e) => {
         const event = JSON.parse(e.data);
-        if (!event.timestamp) {
-          event.timestamp = new Date().toLocaleTimeString();
+        
+        // Configure tools after session is created
+        if (!toolsConfigured && event.type === "session.created") {
+          sendClientEvent(sessionUpdate);
+          setToolsConfigured(true);
         }
 
-        setEvents((prev) => [event, ...prev]);
-      });
+        // Handle function calls in responses
+        if (event.type === "response.done" && event.response.output) {
+          event.response.output.forEach(output => {
+            if (output.type === "function_call") {
+              handleFunctionCall(output);
+            }
+          });
+        }
+      };
 
-      // Set session active when the data channel is opened
+      const handleError = (error) => {
+        console.error('Data channel error:', error);
+      };
+
       dataChannel.addEventListener("open", () => {
         setIsSessionActive(true);
-        setEvents([]);
       });
+      dataChannel.addEventListener("message", handleMessage);
+      dataChannel.addEventListener("error", handleError);
+
+      // Cleanup function to remove event listeners
+      return () => {
+        dataChannel.removeEventListener("message", handleMessage);
+        dataChannel.removeEventListener("error", handleError);
+      };
     }
-  }, [dataChannel]);
+  }, [dataChannel, toolsConfigured]);
 
   return (
-    <>
-      <nav className="absolute top-0 left-0 right-0 h-16 flex items-center">
-        <div className="flex items-center gap-4 w-full m-4 pb-2 border-0 border-b border-solid border-gray-200">
-          <img style={{ width: "24px" }} src={logo} />
-          <h1>realtime console</h1>
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center">
+          <img className="w-6 h-6" src={logo} alt="OpenAI Logo" />
+          <h1 className="ml-4 text-xl font-semibold">Voice Waiter Assistant</h1>
         </div>
       </nav>
-      <main className="absolute top-16 left-0 right-0 bottom-0">
-        <section className="absolute top-0 left-0 right-[380px] bottom-0 flex">
-          <section className="absolute top-0 left-0 right-0 bottom-32 px-4 overflow-y-auto">
-            <EventLog events={events} />
-          </section>
-          <section className="absolute h-32 left-0 right-0 bottom-0 p-4">
-            <SessionControls
-              startSession={startSession}
-              stopSession={stopSession}
-              sendClientEvent={sendClientEvent}
-              sendTextMessage={sendTextMessage}
-              events={events}
-              isSessionActive={isSessionActive}
-            />
-          </section>
-        </section>
-        <section className="absolute top-0 w-[380px] right-0 bottom-0 p-4 pt-0 overflow-y-auto">
-          <ToolPanel
-            sendClientEvent={sendClientEvent}
-            sendTextMessage={sendTextMessage}
-            events={events}
-            isSessionActive={isSessionActive}
-          />
-        </section>
+
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="flex flex-col items-center justify-center min-h-[400px]">
+            <button
+              onClick={isSessionActive ? stopSession : startSession}
+              className={`px-8 py-4 rounded-full text-white text-lg font-medium transition-all ${
+                isSessionActive
+                  ? 'bg-red-500 hover:bg-red-600'
+                  : 'bg-green-500 hover:bg-green-600'
+              }`}
+            >
+              {isSessionActive ? 'End Call' : 'Start Call'}
+            </button>
+            {isSessionActive && (
+              <p className="mt-4 text-green-600">Voice assistant is active and listening...</p>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow">
+            <Cart items={cartItems} />
+          </div>
+        </div>
       </main>
-    </>
+    </div>
   );
 }

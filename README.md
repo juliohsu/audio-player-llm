@@ -1,6 +1,26 @@
-# OpenAI Realtime Console
+# Maitre
 
-This is an example application showing how to use the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime) with [WebRTC](https://platform.openai.com/docs/guides/realtime-webrtc).
+This is an example application showing how to use the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime) with [WebRTC](https://platform.openai.com/docs/guides/realtime-webrtc). The application implements a shopping cart interface with voice interaction capabilities.
+
+## Features
+
+- Real-time voice interaction with GPT-4
+- Shopping cart functionality with add, remove, update, and clear operations
+- WebRTC-based communication with OpenAI's Realtime API
+- Clean and minimal React components architecture
+
+## Project Structure
+
+The application is organized as follows:
+
+```
+/client
+  /components
+    - App.jsx        # Main application component
+    - Button.jsx     # Reusable button component
+    - Cart.jsx       # Shopping cart component
+    - SessionControls.jsx # Session management controls
+```
 
 ## Installation and usage
 
@@ -22,11 +42,22 @@ Start the application server with:
 npm run dev
 ```
 
-This should start the console application on [http://localhost:3000](http://localhost:3000).
+This will start the console application on [http://localhost:3000](http://localhost:3000).
 
-This application is a minimal template that uses [express](https://expressjs.com/) to serve the React frontend contained in the [`/client`](./client) folder. The server is configured to use [vite](https://vitejs.dev/) to build the React frontend.
+## Technical Details
 
-This application shows how to send and receive Realtime API events over the WebRTC data channel and configure client-side function calling. You can also view the JSON payloads for client and server events using the logging panel in the UI.
+This application is built with:
+- React for the frontend UI
+- Express.js server for API key management
+- Vite as the build tool and development server
+- WebRTC for real-time communication with OpenAI's API
+- Tailwind CSS for styling
+
+The application demonstrates how to:
+1. Establish WebRTC connections with OpenAI's Realtime API
+2. Handle real-time voice input and audio output
+3. Implement function calling for cart operations
+4. Manage state for shopping cart items and session control
 
 For a more comprehensive example, see the [OpenAI Realtime Agents](https://github.com/openai/openai-realtime-agents) demo built with Next.js, using an agentic architecture inspired by [OpenAI Swarm](https://github.com/openai/swarm).
 
