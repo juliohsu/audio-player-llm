@@ -1,11 +1,13 @@
-# Maitre
+# Audio Player For Music
 
-This is an example application showing how to use the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime) with [WebRTC](https://platform.openai.com/docs/guides/realtime-webrtc). The application implements a shopping cart interface with voice interaction capabilities.
+This is an example application showing how to use the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime) with [WebRTC](https://platform.openai.com/docs/guides/realtime-webrtc). The application implements a music player interface with voice interaction capabilities.
 
 ## Features
 
 - Real-time voice interaction with GPT-4
-- Shopping cart functionality with add, remove, update, and clear operations
+- Users can manage with mentioned model above the playback queue by adding, removing, updating, or clearing songs as they wish
+- Additionally, they can classify music by genre or mood, and even isolate specific instruments or parts of a track for a more 
+personalized listening experience
 - WebRTC-based communication with OpenAI's Realtime API
 - Clean and minimal React components architecture
 
@@ -18,7 +20,7 @@ The application is organized as follows:
   /components
     - App.jsx        # Main application component
     - Button.jsx     # Reusable button component
-    - Cart.jsx       # Shopping cart component
+    - AudioPlayer.jsx       # Audio Player component
     - SessionControls.jsx # Session management controls
 ```
 
@@ -47,6 +49,7 @@ This will start the console application on [http://localhost:3000](http://localh
 ## Technical Details
 
 This application is built with:
+
 - React for the frontend UI
 - Express.js server for API key management
 - Vite as the build tool and development server
@@ -54,6 +57,7 @@ This application is built with:
 - Tailwind CSS for styling
 
 The application demonstrates how to:
+
 1. Establish WebRTC connections with OpenAI's Realtime API
 2. Handle real-time voice input and audio output
 3. Implement function calling for cart operations

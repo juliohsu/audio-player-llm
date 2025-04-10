@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import logo from "/assets/openai-logomark.svg";
-import Cart from "./Cart";
+import logo from "/assets/audio-player-logo.jpg";
+import AudioPlayer from "./AudioPlayer";
 
 const sessionUpdate = {
   type: "session.update",
@@ -8,181 +8,183 @@ const sessionUpdate = {
     tools: [
       {
         type: "function",
-        name: "add_item",
-        description: "Add an item to the cart",
+        name: "add_track",
+        description: "Add a track to the playlist",
         parameters: {
           type: "object",
           properties: {
-            item_id: {
-              type: "string",
-              description: "Unique identifier for the item"
-            },
-            item_name: {
-              type: "string",
-              description: "Display name of the item"
-            },
-            price: {
-              type: "number",
-              description: "Price of the item"
-            }
+            track_id: { type: "string", description: "Unique ID of the track" },
+            title: { type: "string", description: "Track title" },
+            artist: { type: "string", description: "Track artist or creator" },
+            url: { type: "string", description: "URL to stream the track audio from" },
           },
-          required: ["item_id", "item_name", "price"]
-        }
+          required: ["track_id", "title", "artist", "url"],
+        },
       },
       {
         type: "function",
-        name: "remove_item",
-        description: "Remove an item from the cart",
+        name: "remove_track",
+        description: "Remove a track from the playlist by its ID",
         parameters: {
           type: "object",
           properties: {
-            item_id: {
+            track_id: {
               type: "string",
-              description: "ID of the item to remove"
-            }
+              description: "Unique ID of the track to remove",
+            },
           },
-          required: ["item_id"]
-        }
+          required: ["track_id"],
+        },
       },
       {
         type: "function",
-        name: "update_quantity",
-        description: "Update the quantity of an item in the cart",
+        name: "play_track",
+        description:
+          "Play a specific track or resume the currently selected one",
         parameters: {
           type: "object",
           properties: {
-            item_id: {
+            track_id: {
               type: "string",
-              description: "ID of the item to update"
+              description:
+                "Track ID to play (optional; plays the current track if omitted)",
             },
-            quantity: {
-              type: "number",
-              description: "New quantity"
-            }
           },
-          required: ["item_id", "quantity"]
-        }
+          required: [],
+        },
       },
       {
         type: "function",
-        name: "clear_cart",
-        description: "Clear all items from the cart",
+        name: "pause_track",
+        description: "Pause the track that is currently playing",
         parameters: {
           type: "object",
-          properties: {}
-        }
+          properties: {},
+          required: [],
+        },
       },
-      {
-        type: "function",
-        name: "get_cart",
-        description: "Get the current contents of the cart",
-        parameters: {
-          type: "object",
-          properties: {}
-        }
-      }
     ],
-    tool_choice: "auto"
-  }
+    tool_choice: "auto",
+  },
 };
 
 export default function App() {
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [cartItems, setCartItems] = useState([]);
   const [dataChannel, setDataChannel] = useState(null);
   const [toolsConfigured, setToolsConfigured] = useState(false);
   const peerConnection = useRef(null);
   const audioElement = useRef(null);
 
-  // Handle cart operations
-  const updateCart = (action, item) => {
-    switch (action) {
-      case 'add':
-        setCartItems(prev => {
-          const existingItem = prev.find(i => i.id === item.id);
-          if (existingItem) {
-            return prev.map(i => 
-              i.id === item.id 
-                ? { ...i, quantity: i.quantity + 1 }
-                : i
-            );
-          }
-          return [...prev, { ...item, quantity: 1 }];
-        });
-        sendClientEvent({
-          type: 'response.create',
-          response: {
-            instructions: `Say that you added the item to the cart, in a natural way`,
-          },
-        });
-        break;
-      case 'remove':
-        setCartItems(prev => prev.filter(i => i.id !== item.id));
-        sendClientEvent({
-          type: 'response.create',
-          response: {
-            instructions: `Say that you removed the item from the cart, in a natural way`,
-          },
-        });
+  const [playlist, setPlaylist] = useState([
+    {
+      id: 0,
+      title: "SoundHelix Song 1",
+      artist: "Test Artist",
+      url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      onRemove: (id) =>
+        setPlaylist((prev) => prev.filter((track) => track.id !== id)),
+    },
+  ]);
 
-        break;
-      case 'update':
-        setCartItems(prev => 
-          prev.map(i => i.id === item.id ? { ...i, quantity: item.quantity } : i)
-        );
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const playTrack = (track) => {
+    console.log(track);
+    if (audioElement.current) {
+      audioElement.current.src = track.url;
+      audioElement.current.play();
+      setCurrentTrack(track);
+      setIsPlaying(true);
+    }
+  };
+  const pauseTrack = () => {
+    console.log(audioElement.current);
+    if (audioElement.current) {
+      audioElement.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const updatePlaylist = (action, payload = {}) => {
+    switch (action) {
+      case "add":
+        setPlaylist((prev) => {
+          const exists = prev.some((t) => t.id === payload.id);
+          return exists ? prev : [...prev, { ...payload }];
+        });
         sendClientEvent({
-          type: 'response.create',
+          type: "response.create",
           response: {
-            instructions: `Say that you updated the quantity of the item in the cart, in a natural way`,
+            instructions: `Track "${payload.title}" by ${payload.artist} was added to the playlist.`,
           },
         });
         break;
-      case 'clear':
-        setCartItems([]);
+
+      case "remove":
+        setPlaylist((prev) => prev.filter((t) => t.id !== payload.id));
         sendClientEvent({
-          type: 'response.create',
+          type: "response.create",
           response: {
-            instructions: `Say that you cleared the cart, in a natural way`,
+            instructions: `Track was removed from the playlist.`,
           },
         });
+        break;
+
+      case "play_track":
+        if (payload.track_id) {
+          const trackToPlay = playlist.find((t) => t.id === String(payload.track_id));
+          if (trackToPlay) {
+            playTrack(trackToPlay);
+          } else {
+            console.warn("Track not found:", payload.track_id);
+          }
+        } else if (currentTrack) {
+          playTrack(currentTrack);
+        } else {
+          console.warn("No track to play.");
+        }
+        break;
+
+      case "pause_track":
+        pauseTrack();
+        break;
+
+      default:
         break;
     }
   };
 
-  // Handle function calls from the AI
   const handleFunctionCall = (output) => {
-    console.log('🛠️ Function Call:', {
+
+    console.log("Function Call:", {
       name: output.name,
-      arguments: JSON.parse(output.arguments)
+      arguments: JSON.parse(output.arguments),
     });
-    
+
+    const params = JSON.parse(output.arguments);
     switch (output.name) {
-      case 'add_item': {
-        const params = JSON.parse(output.arguments);
-        updateCart('add', {
-          id: params.item_id,
-          name: params.item_name,
-          price: params.price
+      case "add_track":
+        updatePlaylist("add", {
+          id: params.track_id,
+          title: params.title,
+          artist: params.artist,
+          url: params.url,
         });
         break;
-      }
-      case 'remove_item': {
-        const params = JSON.parse(output.arguments);
-        updateCart('remove', { id: params.item_id });
+
+      case "remove_track":
+        updatePlaylist("remove", { track_id: params.track_id });
         break;
-      }
-      case 'update_quantity': {
-        const params = JSON.parse(output.arguments);
-        updateCart('update', {
-          id: params.item_id,
-          quantity: params.quantity
-        });
+
+      case "play_track":
+        updatePlaylist("play_track", { track_id: params.track_id });
         break;
-      }
-      case 'clear_cart':
-        updateCart('clear');
+
+      case "pause_track":
+        updatePlaylist("pause_track");
         break;
-      case 'get_cart':
+
+      default:
         break;
     }
   };
@@ -190,7 +192,7 @@ export default function App() {
   function sendClientEvent(message) {
     if (dataChannel) {
       if (message.type === "tools.configure") {
-        console.log('🔧 Configuring tools');
+        console.log("🔧 Configuring tools");
       }
       dataChannel.send(JSON.stringify(message));
     }
@@ -219,7 +221,7 @@ export default function App() {
 
       const baseUrl = "https://api.openai.com/v1/realtime";
       const model = "gpt-4o-realtime-preview-2024-12-17";
-      
+
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         body: offer.sdp,
@@ -237,7 +239,7 @@ export default function App() {
 
       peerConnection.current = pc;
     } catch (error) {
-      console.error('Error starting session:', error);
+      console.error("Error starting session:", error);
     }
   }
 
@@ -266,7 +268,7 @@ export default function App() {
     if (dataChannel) {
       const handleMessage = (e) => {
         const event = JSON.parse(e.data);
-        
+
         // Configure tools after session is created
         if (!toolsConfigured && event.type === "session.created") {
           sendClientEvent(sessionUpdate);
@@ -275,7 +277,7 @@ export default function App() {
 
         // Handle function calls in responses
         if (event.type === "response.done" && event.response.output) {
-          event.response.output.forEach(output => {
+          event.response.output.forEach((output) => {
             if (output.type === "function_call") {
               handleFunctionCall(output);
             }
@@ -284,7 +286,7 @@ export default function App() {
       };
 
       const handleError = (error) => {
-        console.error('Data channel error:', error);
+        console.error("Data channel error:", error);
       };
 
       dataChannel.addEventListener("open", () => {
@@ -306,7 +308,9 @@ export default function App() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center">
           <img className="w-6 h-6" src={logo} alt="OpenAI Logo" />
-          <h1 className="ml-4 text-xl font-semibold">Voice Waiter Assistant</h1>
+          <h1 className="ml-4 text-xl font-semibold">
+            Voice Audio Player Assistant
+          </h1>
         </div>
       </nav>
 
@@ -317,19 +321,28 @@ export default function App() {
               onClick={isSessionActive ? stopSession : startSession}
               className={`px-8 py-4 rounded-full text-white text-lg font-medium transition-all ${
                 isSessionActive
-                  ? 'bg-red-500 hover:bg-red-600'
-                  : 'bg-green-500 hover:bg-green-600'
+                  ? "bg-red-500 hover:bg-red-600"
+                  : "bg-green-500 hover:bg-green-600"
               }`}
             >
-              {isSessionActive ? 'End Call' : 'Start Call'}
+              {isSessionActive ? "End Call" : "Start Call"}
             </button>
             {isSessionActive && (
-              <p className="mt-4 text-green-600">Voice assistant is active and listening...</p>
+              <p className="mt-4 text-green-600">
+                Voice assistant is active and listening...
+              </p>
             )}
           </div>
 
           <div className="bg-white rounded-lg shadow">
-            <Cart items={cartItems} />
+            <AudioPlayer
+              tracks={playlist}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              onPlay={playTrack}
+              onPause={pauseTrack}
+            />
+            <audio ref={audioElement} hidden />
           </div>
         </div>
       </main>
